@@ -1,0 +1,17 @@
+from discord.ext import commands
+
+import yadb
+from g4f.client import Client
+
+client = Client()
+
+
+async def setup(bot: yadb.Bot):
+    bot.add_command(gpt)
+
+
+@commands.command()
+async def gpt(ctx: yadb.Context, *, text: str):
+    """общение с ChatGPT."""
+
+    pass

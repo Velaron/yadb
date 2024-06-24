@@ -1,0 +1,151 @@
+
+import random
+import xml.etree.ElementTree as xml
+
+import aiohttp
+import discord
+import yadb
+from discord.ext import commands, pages
+from pybooru import Danbooru
+
+RATINGS = {
+    's': 'Безопасное',
+    'q': 'Сомнительное',
+    'e': 'Откровенное'
+}
+
+
+class Rule34Client:
+    base_url = 'https://api.rule34.xxx/index.php'
+    session = aiohttp.ClientSession()
+
+    @staticmethod
+    async def get(params: dict[str, str]) -> xml.Element:
+        async with Rule34Client.session.get(Rule34Client.base_url, **params) as resp:
+            return xml.fromstring(await resp.text())
+
+class BooruPaginator(pages.Paginator):
+    @property
+    def page_count(self) -> int:
+        return 666 - 1
+    
+    @page_count.setter
+    def page_count(self, value: int) -> None:
+        pass
+
+    @staticmethod
+    def get_page_content(page: yadb.Embed) -> pages.Page:
+        return super().get_page_content(page)
+
+
+username: str = yadb.config.get('Danbooru', 'Username')
+api_key: str = yadb.config.get('Danbooru', 'ApiKey')
+client: Danbooru = Danbooru(
+    site_name='danbooru', username=username, api_key=api_key)
+
+
+def setup(bot: yadb.Bot) -> None:
+    bot.add_command(danbooru)
+    bot.add_command(rule34)
+
+
+def _create_embed(score: int, rating: str, tags: str, url: str) -> yadb.Embed:
+    embed = yadb.Embed()
+    embed.add_field(name='Рейтинг', value=score, inline=False)
+    embed.add_field(name='Содержимое', value=rating, inline=False)
+    embed.add_field(name='Теги', value=tags, inline=False)
+    embed.set_image(url=url)
+
+    return embed
+
+
+@commands.command()
+@commands.is_nsfw()
+async def danbooru(ctx: yadb.Context, *, tags: str) -> None:
+    '''поиск по danbooru.'''
+
+    total_posts = client.count_posts(tags)
+
+    posts: list[dict[str, str]] = client.post_list(
+        limit=10, tags=tags)
+
+    if len(posts) == 0:
+        await ctx.send_error('Изображения не найдены')
+        return
+
+    embeds = [
+        _create_embed(
+            score=p['score'],
+            rating=RATINGS.get(p['rating']),
+            tags=f'```\n{p["tag_string"]}\n```',
+            url=p['file_url']
+        ) for p in posts
+    ]
+
+    # if is_video:
+    #     await ctx.reply(embed=embed)
+    #     await ctx.send(url)
+    # else:
+    #     embed.set_image(url=url)
+    #     await ctx.reply(embed=embed)
+
+    paginator = BooruPaginator(pages=embeds)
+
+    await paginator.send(ctx)
+
+
+@commands.command()
+@commands.is_nsfw()
+async def rule34(ctx: yadb.Context, *, tags: str) -> None:
+    '''поиск по rule34.'''
+
+    payload = {
+        'page': 'dapi',
+        's': 'post',
+        'q': 'index',
+        'limit': 1,
+        'tags': tags
+    }
+
+    document = Rule34Client.get(payload)
+    count = int(document['count'])
+
+    if count == 0:
+        await ctx.send_error('Изображения не найдены')
+        return
+
+    payload.update({'pid': random.randint(0, count - 1)})
+
+    post = Rule34Client.get(payload)
+
+    score = post['score']
+    rating = RATINGS.get(post['rating'])
+    tag_string = f'```\n{post["tags"]}\n```'
+    is_video = post['file_url'].endswith('webm')
+    url = post['file_url']
+
+    embed = yadb.Embed()
+    embed.add_field(name='Рейтинг', value=score, inline=False)
+    embed.add_field(name='Содержимое', value=rating, inline=False)
+    embed.add_field(name='Теги', value=tag_string, inline=False)
+
+    if is_video:
+        await ctx.reply(embed=embed)
+        await ctx.send(url)
+    else:
+        embed.set_image(url=url)
+        await ctx.reply(embed=embed)
+
+
+@danbooru.error
+async def error_handler(ctx: yadb.Context, error: discord.DiscordException) -> None:
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send_error('Не указаны теги')
+
+
+@rule34.error
+async def error_handler(ctx: yadb.Context, error: discord.DiscordException):
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send_error('Не указаны теги')
+    elif hasattr(error, 'original') and isinstance(error.original, xml.ParseError):
+        await ctx.send_error('Cloudflare иди нахуй')

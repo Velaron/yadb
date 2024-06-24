@@ -1,0 +1,7 @@
+!.vscode/*
+.idea/*.iml
+.idea/workspace.xml
+*.pyc
+*.exe
+*.ini
+*.json

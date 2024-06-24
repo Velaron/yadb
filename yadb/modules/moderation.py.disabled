@@ -1,0 +1,61 @@
+import price
+import discord
+from discord.ext import commands
+
+def setup(bot):
+	pass
+
+@price.bot.command(hidden=True)
+@commands.has_permissions(ban_members=True)
+@commands.bot_has_permissions(ban_members=True)
+async def ban(ctx, member: discord.Member, *, reason: str = 'Не указана.'):
+	await member.ban(reason=reason, delete_message_days=0)
+	embed = price.Embed(ctx.channel)
+	embed.set_description('Пользователь @{} забанен.'.format(member))
+	embed.add_field(name='Причина:', value=reason, inline=False)
+	guild = await price.Guild.filter(id=ctx.guild.id, type=price.ServerType.DISCORD).first()
+	if not guild: guild = await price.Guild.create(id=ctx.guild.id, type=price.ServerType.DISCORD)
+	if not guild.system_channel:
+		embed.set_footer(text='Примечание: не выбран канал для системных оповещений, используйте команду !set_system_channel в нужном канале.')
+	await embed.send()
+	if guild.system_channel:
+		embed.set_channel(guild.system_channel)
+		await embed.send()
+
+@price.bot.command(hidden=True)
+@commands.has_permissions(kick_members=True)
+@commands.bot_has_permissions(kick_members=True)
+async def kick(ctx, member: discord.Member, *, reason: str = 'Не указана.'):
+	await member.kick(reason=reason)
+	embed = price.Embed(ctx.channel)
+	embed.set_description('Пользователь @{} кикнут.'.format(member))
+	embed.add_field(name='Причина:', value=reason, inline=False)
+
+	guild = await price.Guild.filter(id=ctx.guild.id, type=price.ServerType.DISCORD).first()
+	if not guild: guild = await price.Guild.create(id=ctx.guild.id, type=price.ServerType.DISCORD)
+	if not guild.system_channel:
+		embed.set_footer(text='Примечание: не выбран канал для системных оповещений, используйте команду !set_system_channel в нужном канале.')
+	await embed.send()
+	if guild.system_channel:
+		embed.set_channel(guild.system_channel)
+		await embed.send()
+
+@price.bot.command(hidden=True)
+@commands.has_permissions(administrator=True)
+async def set_system_channel(ctx):
+	guild = await price.Guild.filter(id=ctx.guild.id, type=price.ServerType.DISCORD).first()
+	if not guild: guild = await price.Guild.create(id=ctx.guild.id, type=price.ServerType.DISCORD)
+	guild.system_channel_id = ctx.channel.id
+	await guild.save()
+	await price.utils.send_notification(ctx.channel, 'Системный канал установлен.')
+
+@price.bot.listen()
+async def on_message_delete(message):
+	guild = await price.Guild.filter(id=message.guild.id, type=price.ServerType.DISCORD).first()
+	if not guild: guild = await price.Guild.create(id=message.guild.id, type=price.ServerType.DISCORD)
+	if not guild.system_channel: return
+
+	embed = price.Embed(guild.system_channel)
+	embed.set_title('Удалено сообщение')
+	embed.add_field(name='@{}'.format(message.author), value='```\n{}\n```'.format(message.content), inline=False)
+	await embed.send()
